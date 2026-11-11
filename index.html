@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
+  <title>My Wallet</title>
+  <meta name="description" content="Portefeuille personnel privé, chiffré et hors ligne.">
+  <meta name="theme-color" content="#0b0b0d">
+  <meta name="color-scheme" content="dark light">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="My Wallet">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/png" sizes="192x192" href="assets/icons/icon-192.png">
+  <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <div id="splash" class="splash" aria-hidden="true">
+    <img src="assets/icons/icon-192.png" alt="" width="96" height="96">
+    <span>My Wallet</span>
+  </div>
+  <div id="app"></div>
+  <div id="sheets"></div>
+  <div id="toasts" class="toasts" aria-live="polite"></div>
+  <div id="busy" class="busy" hidden><div class="spinner"></div><span>Chiffrement…</span></div>
+  <noscript><p style="padding:24px;font-family:sans-serif">My Wallet nécessite JavaScript.</p></noscript>
+</body>
+</html>
