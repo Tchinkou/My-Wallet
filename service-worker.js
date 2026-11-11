@@ -4,11 +4,16 @@
  * puis sert depuis le cache : l'application fonctionne sans Internet.
  * Aucune donnée financière ne transite ici : elles restent dans IndexedDB.
  * Pensez à incrémenter VERSION à chaque déploiement.
+ *
+ * Note Cloudflare Pages : /index.html est redirigé (308) vers /. On ne met
+ * donc en cache que « ./ », et toute réponse redirigée est recopiée sans son
+ * statut de redirection (Chrome refuse de servir une réponse redirigée à une
+ * navigation : erreur ERR_FAILED).
  */
-const VERSION = 'mywallet-v1.0.0';
+const VERSION = 'mywallet-v1.0.1';
+const SHELL = './';
 const ASSETS = [
-  './',
-  './index.html',
+  SHELL,
   './manifest.json',
   './css/style.css',
   './js/app.js',
@@ -23,8 +28,22 @@ const ASSETS = [
   './assets/icons/icon-maskable-512.png',
 ];
 
+/** Recopie une réponse redirigée en réponse « propre » utilisable partout. */
+async function clean(res) {
+  if (!res.redirected) return res;
+  const body = await res.blob();
+  return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+}
+
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(VERSION).then((c) => c.addAll(ASSETS.map((u) => new Request(u, { cache: 'reload' })))));
+  event.waitUntil((async () => {
+    const cache = await caches.open(VERSION);
+    await Promise.all(ASSETS.map(async (url) => {
+      const res = await fetch(new Request(url, { cache: 'reload' }));
+      if (!res.ok) throw new Error(`Échec du cache : ${url}`);
+      await cache.put(url, await clean(res));
+    }));
+  })());
 });
 
 self.addEventListener('activate', (event) => {
@@ -48,7 +67,14 @@ self.addEventListener('fetch', (event) => {
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
       const cache = await caches.open(VERSION);
-      return (await cache.match('./index.html')) || fetch(req);
+      const hit = await cache.match(SHELL);
+      if (hit) return hit;
+      try {
+        return await clean(await fetch(req));
+      } catch {
+        return new Response('<h1>My Wallet</h1><p>Hors ligne : ouvrez l’application une fois avec Internet.</p>',
+          { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+      }
     })());
     return;
   }
@@ -58,7 +84,7 @@ self.addEventListener('fetch', (event) => {
     const hit = await cache.match(req, { ignoreSearch: true });
     if (hit) return hit;
     const res = await fetch(req);
-    if (res.ok && res.type === 'basic') cache.put(req, res.clone());
+    if (res.ok && res.type === 'basic' && !res.redirected) cache.put(req, res.clone());
     return res;
   })());
 });

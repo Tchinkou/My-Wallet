@@ -100,8 +100,11 @@ python3 -m http.server 8080
 # Tests unitaires du moteur de calcul (Node 18+)
 node --test tests/calculations.test.mjs
 
+# Serveur local qui imite Cloudflare Pages (redirection /index.html -> /)
+node tests/serve-cloudflare.cjs . 8090
+
 # Test de bout en bout du scénario complet (Playwright installé)
-node tests/e2e.cjs http://localhost:8080/
+node tests/e2e.cjs http://localhost:8090/
 ```
 
 Le test de bout en bout réalise l'initialisation, le scénario obligatoire, la modification et la suppression d'opérations (avec annulation), le verrouillage, le chiffrement du stockage, la sauvegarde/restauration, l'export CSV, le mode hors ligne, et vérifie qu'aucune requête ne part vers un tiers.
