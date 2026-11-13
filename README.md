@@ -81,7 +81,7 @@ Le dépôt ne contient que des fichiers statiques : aucune commande de build.
 5. **Save and Deploy**. L'application est disponible en HTTPS sur `https://<nom-du-projet>.pages.dev`.
 6. Ne pas activer *Web Analytics* : l'application n'en a pas besoin (et la CSP le bloquerait).
 
-Chaque `git push` sur `main` redéploie automatiquement. **Pensez à incrémenter `VERSION` dans `service-worker.js`** (et `APP_VERSION` dans `js/app.js`) : l'application affichera alors « Nouvelle version disponible ».
+Chaque `git push` sur `main` redéploie automatiquement. Pour vérifier qu'un déploiement est bien en ligne, ouvrez `https://<projet>.pages.dev/service-worker.js` et contrôlez la ligne `VERSION`. Si rien ne se déploie, regardez dans Cloudflare si le projet affiche « disconnected from your Git account » : il faut alors redonner l'accès au dépôt dans GitHub › Settings › Applications › Cloudflare Workers and Pages › Configure. **Pensez à incrémenter `VERSION` dans `service-worker.js`** (et `APP_VERSION` dans `js/app.js`) : l'application affichera alors « Nouvelle version disponible ».
 
 > Important : l'adresse (domaine) fait partie de l'identité des données. Les données et l'empreinte enregistrées sur `xxx.pages.dev` ne sont pas visibles depuis une autre adresse. Si vous changez de domaine, exportez une sauvegarde avant et restaurez-la sur la nouvelle adresse.
 
