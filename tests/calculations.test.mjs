@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  computeEuro, validateEuroItem, totalAvailable,
   computeSummary, computeLoans, validateOp, cascadeIds, parseAmount, availableSeries, monthlySeries, filterOps, checkIntegrity,
 } from '../js/calculations.js';
 
@@ -141,4 +142,31 @@ test('saisie des montants', () => {
   assert.equal(parseAmount('1 234,5'), 123450);
   assert.ok(Number.isNaN(parseAmount('12,345')));
   assert.ok(Number.isNaN(parseAmount('abc')));
+});
+
+test('section Euro : seuls les paiements réglés changent le solde', () => {
+  const st = { euro: { initial: 10000, items: [
+    { id: 'a', kind: 'receive', client: 'A', amount: 50000, date: T, status: 'pending' },
+    { id: 'b', kind: 'pay', client: 'B', amount: 20000, date: T, status: 'pending' },
+  ] } };
+  let e = computeEuro(st);
+  assert.equal(e.balance, 10000);
+  assert.equal(e.toReceive, 50000);
+  assert.equal(e.toPay, 20000);
+  st.euro.items[0].status = 'done'; st.euro.items[0].doneDate = T;
+  st.euro.items[1].status = 'done'; st.euro.items[1].doneDate = T;
+  e = computeEuro(st);
+  assert.equal(e.balance, 40000);
+  assert.equal(e.toReceive + e.toPay, 0);
+  assert.match(validateEuroItem({ kind: 'pay', client: '', amount: 1, date: T }), /client/);
+});
+
+test('argent utilisable : hors comptes épargne', () => {
+  const { st } = scenario();
+  st.accounts.push({ id: 'sav', name: 'Épargne', type: 'savings', initial: DA(100000) });
+  assert.equal(totalAvailable(st, null, true), DA(53000));
+  assert.equal(totalAvailable(st), DA(153000));
+  const s = computeSummary(st, T);
+  assert.equal(s.spendable, DA(53000));
+  assert.equal(s.net, DA(150000));
 });

@@ -567,3 +567,19 @@ p { margin: 0; }
 @media (min-width: 700px) {
   .tabbar { left: 50%; transform: translateX(-50%); max-width: 560px; border-radius: 24px 24px 0 0; border: 1px solid var(--line); }
 }
+
+/* ------------------------------------------------------------ v1.1 : utilisable, euro */
+
+.hero-main { display: block; }
+.hero-wide { grid-column: 1 / -1; }
+.btn-full { width: 100%; margin: 12px 0 0; }
+.pos-light { color: #5fd690 !important; }
+.neg-light { color: #ff7b7f !important; }
+.euro-hint { margin: 12px 4px; }
+.euro-row { display: flex; flex-direction: column; gap: 6px; padding: 10px 0; }
+.euro-row .euro-main { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 2px 4px; border-radius: 12px; }
+.euro-row .euro-main:active { background: var(--surface-2); }
+.euro-row > .btn { align-self: flex-end; }
+.euro-row.is-done .op-amt { opacity: .7; }
+.loan-actions + .loan-actions { margin-top: 4px; }
+.loan-actions .btn-danger-ghost { margin-left: auto; }

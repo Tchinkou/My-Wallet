@@ -93,6 +93,7 @@ export function emptyState() {
     categories: defaultCategories(),
     ops: [],
     assets: [],
+    euro: { initial: 0, items: [] },
     meta: { createdAt: Date.now(), lastBackupAt: null },
   };
 }
@@ -106,6 +107,7 @@ export function migrateState(s) {
     settings: { ...base.settings, ...(s.settings || {}) },
     meta: { ...base.meta, ...(s.meta || {}) },
     assets: Array.isArray(s.assets) ? s.assets : [],
+    euro: { initial: s.euro?.initial || 0, items: Array.isArray(s.euro?.items) ? s.euro.items : [] },
     categories: Array.isArray(s.categories) && s.categories.length ? s.categories : base.categories,
   };
 }

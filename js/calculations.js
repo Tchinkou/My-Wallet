@@ -129,10 +129,16 @@ export function computeBalances(state, untilDate = null) {
   return balances;
 }
 
-export function totalAvailable(state, untilDate = null) {
+/** Somme des soldes ; spendableOnly exclut les comptes d'épargne. */
+export function totalAvailable(state, untilDate = null, spendableOnly = false) {
+  const skip = spendableOnly ? savingsIds(state) : null;
   let t = 0;
-  for (const v of computeBalances(state, untilDate).values()) t += v;
+  for (const [id, v] of computeBalances(state, untilDate)) if (!skip?.has(id)) t += v;
   return t;
+}
+
+export function savingsIds(state) {
+  return new Set(state.accounts.filter((a) => a.type === 'savings').map((a) => a.id));
 }
 
 /* --------------------------------------------------- prêts et dettes */
@@ -284,6 +290,7 @@ export function computeSummary(state, today) {
     repaidMade,
     availableStartMonth,
     availableChangeMonth: available - availableStartMonth,
+    spendableChangeMonth: spendable - totalAvailable(state, endPrevMonth, true),
     loans,
   };
 }
@@ -323,17 +330,18 @@ export function monthlySeries(state, today, n = 6) {
 }
 
 /** Argent disponible en fin de journée sur les n derniers jours. */
-export function availableSeries(state, today, days = 30) {
+export function availableSeries(state, today, days = 30, { spendableOnly = false } = {}) {
   const start = addDays(today, -(days - 1));
+  const skip = spendableOnly ? savingsIds(state) : null;
   // Solde à la veille du début, puis on applique les deltas jour par jour.
   const dayDelta = new Map();
   for (const op of state.ops) {
     if (op.date < start || op.date > today) continue;
     let t = 0;
-    for (const [, v] of opDeltas(op)) t += v;
+    for (const [id, v] of opDeltas(op)) if (!skip?.has(id)) t += v;
     dayDelta.set(op.date, (dayDelta.get(op.date) || 0) + t);
   }
-  let running = totalAvailable(state, addDays(start, -1));
+  let running = totalAvailable(state, addDays(start, -1), spendableOnly);
   const out = [];
   for (let i = 0; i < days; i++) {
     const d = addDays(start, i);
@@ -341,6 +349,39 @@ export function availableSeries(state, today, days = 30) {
     out.push({ date: d, value: running });
   }
   return out;
+}
+
+/* ------------------------------------------------------------ section Euro */
+
+/**
+ * Section Euro : portefeuille séparé en euros (aucune conversion avec la devise
+ * principale). Les factures clients en attente ne changent PAS le solde :
+ *   - kind 'receive' : un client me doit de l'argent ; une fois marqué payé,
+ *     le montant s'ajoute au solde euro.
+ *   - kind 'pay'     : je dois payer un client ; une fois marqué payé,
+ *     le montant est retiré du solde euro.
+ */
+export function computeEuro(state) {
+  const euro = state.euro || { initial: 0, items: [] };
+  let balance = euro.initial || 0;
+  let toReceive = 0, toPay = 0, received = 0, paid = 0;
+  for (const it of euro.items) {
+    if (it.status === 'done') {
+      if (it.kind === 'receive') { balance += it.amount; received += it.amount; }
+      else { balance -= it.amount; paid += it.amount; }
+    } else if (it.kind === 'receive') toReceive += it.amount;
+    else toPay += it.amount;
+  }
+  return { balance, toReceive, toPay, received, paid, projected: balance + toReceive - toPay };
+}
+
+export function validateEuroItem(item) {
+  if (item.kind !== 'receive' && item.kind !== 'pay') return 'Type invalide.';
+  if (!String(item.client || '').trim()) return 'Indiquez le nom du client.';
+  if (!Number.isInteger(item.amount) || item.amount <= 0) return 'Le montant doit être supérieur à zéro.';
+  if (!isValidISODate(item.date)) return 'Date invalide.';
+  if (item.status === 'done' && !isValidISODate(item.doneDate)) return 'Date de paiement invalide.';
+  return null;
 }
 
 /* ----------------------------------------------------------- tri, filtres */

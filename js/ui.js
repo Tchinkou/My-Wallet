@@ -30,8 +30,9 @@ function nf(decimals) {
 export const view = { currency: 'DZD', masked: false };
 
 /** Montant en centimes → « 10 000 DA ». Masqué si le mode discrétion est actif. */
-export function money(cents, { sign = false, force = false } = {}) {
-  const sym = CURRENCIES[view.currency]?.symbol || view.currency;
+export function money(cents, { sign = false, force = false, currency = null } = {}) {
+  const cur = currency || view.currency;
+  const sym = CURRENCIES[cur]?.symbol || cur;
   if (view.masked && !force) return `••••• ${sym}`;
   const abs = Math.abs(cents);
   const decimals = abs % 100 === 0 ? 0 : 2;
@@ -127,6 +128,7 @@ const P = {
   calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   refresh: '<path d="M20 11A8 8 0 0 0 5.6 6.6L3 9M4 13a8 8 0 0 0 14.4 4.4L21 15"/><path d="M3 4v5h5M21 20v-5h-5"/>',
   share: '<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.2 10.8 7.6-3.6M8.2 13.2l7.6 3.6"/>',
+  euro: '<path d="M18 7.5A7 7 0 1 0 18 16.5"/><path d="M4 10.5h9M4 13.5h9"/>',
   file: '<path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>',
 };
 

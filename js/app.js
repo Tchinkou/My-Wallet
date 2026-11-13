@@ -10,7 +10,7 @@
 import {
   OP_TYPES, ACCOUNT_TYPES, STATUS_LABELS, toISODate, monthKey, addMonths, parseAmount, amountToInput,
   computeSummary, computeBalances, computeLoans, groupByPerson, expensesByCategory, monthlySeries,
-  availableSeries, filterOps, validateOp, cascadeIds, opsForAccount, pctChange, normalizeName, byDateDesc,
+  availableSeries, filterOps, validateOp, computeEuro, validateEuroItem, cascadeIds, opsForAccount, pctChange, normalizeName, byDateDesc,
 } from './calculations.js';
 import { db, uid, emptyState, migrateState, requestPersistence } from './database.js';
 import {
@@ -35,6 +35,8 @@ const S = {
   filters: {},
   historyLimit: 150,
   peopleTab: 'loan',
+  euroTab: 'receive',
+  euroShowDone: false,
   showSettled: false,
   revealSavings: false,
   installPrompt: null,
@@ -467,7 +469,7 @@ const TABS = [
 
 function route() {
   const r = (location.hash || '#home').slice(1);
-  return ['home', 'accounts', 'people', 'history', 'settings', 'install', 'security', 'backup', 'categories'].includes(r) ? r : 'home';
+  return ['home', 'accounts', 'people', 'history', 'settings', 'install', 'security', 'backup', 'categories', 'euro'].includes(r) ? r : 'home';
 }
 
 function renderShell() {
@@ -493,7 +495,7 @@ function renderShell() {
 
 const TITLES = {
   home: 'My Wallet', accounts: 'Mes comptes', people: 'Prêts et dettes', history: 'Historique',
-  settings: 'Réglages', install: "Installer l'application", security: 'Sécurité', backup: 'Sauvegarde', categories: 'Catégories',
+  euro: 'Euro', settings: 'Réglages', install: "Installer l'application", security: 'Sécurité', backup: 'Sauvegarde', categories: 'Catégories',
 };
 
 function render() {
@@ -511,7 +513,7 @@ function render() {
   document.querySelectorAll('.tab').forEach((t) => t.classList.toggle('active', t.dataset.tab === r));
   const renderers = {
     home: viewHome, accounts: viewAccounts, people: viewPeople, history: viewHistory, settings: viewSettings,
-    install: viewInstall, security: viewSecurity, backup: viewBackup, categories: viewCategories,
+    euro: viewEuro, install: viewInstall, security: viewSecurity, backup: viewBackup, categories: viewCategories,
   };
   const sameRoute = v.dataset.route === r;
   v.innerHTML = renderers[r]();
@@ -607,15 +609,14 @@ function viewHome() {
   const st = S.state;
   const t = today();
   const s = computeSummary(st, t);
-  const anyHidden = st.accounts.some(isSavingsHidden);
-  const hasSavings = st.accounts.some((a) => a.type === 'savings');
+  const eu = computeEuro(st);
   const daysSinceBackup = st.meta.lastBackupAt ? (Date.now() - st.meta.lastBackupAt) / 86_400_000 : Infinity;
   const remind = st.settings.backupReminderDays > 0 && st.ops.length > 0 && daysSinceBackup > st.settings.backupReminderDays;
   const cats = expensesByCategory(st, s.month);
   const firstDay = st.accounts.reduce((m, a) => (a.createdAt && a.createdAt < m ? a.createdAt : m), t);
   const firstOp = st.ops.reduce((m, o) => (o.date < m ? o.date : m), firstDay);
   // Courbe à partir du premier jour utile (au plus 30 jours), au moins 2 points.
-  const series = availableSeries(st, t, 30).filter((p, i, a) => p.date >= firstOp || i === a.length - 2);
+  const series = availableSeries(st, t, 30, { spendableOnly: true }).filter((p, i, a) => p.date >= firstOp || i === a.length - 2);
   const months = monthlySeries(st, t, 6);
   const recent = [...st.ops].sort(byDateDesc).slice(0, 5);
 
@@ -625,20 +626,12 @@ function viewHome() {
   } Pensez à sauvegarder vos données.</span>${icon('chevron')}</a>` : ''}
 
   <section class="hero">
-    <div class="hero-label">Patrimoine net</div>
-    <div class="hero-value" data-testid="net">${money(s.net)}</div>
-    <div class="hero-sub">Disponible + on me doit${s.otherAssets ? ' + autres actifs' : ''} − je dois</div>
+    <a href="#accounts" class="hero-main">
+      <div class="hero-label">Argent utilisable</div>
+      <div class="hero-value" data-testid="spendable">${money(s.spendable)}</div>
+      <div class="hero-sub">Espèces et comptes courants, hors épargne</div>
+    </a>
     <div class="hero-grid">
-      <a href="#accounts" class="hero-cell">
-        <span class="lbl">${icon('wallet')} Disponible</span>
-        <b data-testid="available">${money(s.available)}</b>
-        ${hasSavings ? `<small>Utilisable ${money(s.spendable)} · Épargne ${hiddenMoney(s.reserved, anyHidden)}</small>` : ''}
-      </a>
-      <a href="#accounts" class="hero-cell">
-        <span class="lbl">${icon('coins')} Fortune totale</span>
-        <b>${money(s.totalWealth)}</b>
-        <small>Tout ce que je possède</small>
-      </a>
       <a href="#people" data-action="people-tab" data-tab="loan" class="hero-cell">
         <span class="lbl">${icon('loan')} On me doit</span>
         <b class="gold" data-testid="receivables">${money(s.receivables)}</b>
@@ -646,6 +639,11 @@ function viewHome() {
       <a href="#people" data-action="people-tab" data-tab="debt" class="hero-cell">
         <span class="lbl">${icon('debt')} Je dois</span>
         <b class="neg" data-testid="debts">${money(s.debts)}</b>
+      </a>
+      <a href="#euro" class="hero-cell hero-wide">
+        <span class="lbl">${icon('euro')} Euro</span>
+        <b data-testid="euro-balance">${money(eu.balance, { currency: 'EUR' })}</b>
+        <small>À recevoir ${money(eu.toReceive, { currency: 'EUR' })} · À payer ${money(eu.toPay, { currency: 'EUR' })}</small>
       </a>
     </div>
   </section>
@@ -669,9 +667,9 @@ function viewHome() {
   </section>
 
   <section class="card">
-    <header class="card-head"><h3>Argent disponible</h3>
-      <span class="chip ${s.availableChangeMonth >= 0 ? 'chip-pos' : 'chip-neg'}">${money(s.availableChangeMonth, { sign: true })} ce mois</span></header>
-    ${series.length >= 2 ? lineChart(series, { label: 'Disponible' })
+    <header class="card-head"><h3>Argent utilisable</h3>
+      <span class="chip ${s.spendableChangeMonth >= 0 ? 'chip-pos' : 'chip-neg'}">${money(s.spendableChangeMonth, { sign: true })} ce mois</span></header>
+    ${series.length >= 2 ? lineChart(series, { label: 'Utilisable' })
       : '<p class="empty-sm">La courbe apparaîtra après quelques jours d\u2019utilisation.</p>'}
   </section>
 
@@ -688,18 +686,17 @@ function viewHome() {
   <details class="card details">
     <summary><h3>Tous les indicateurs</h3>${icon('chevron')}</summary>
     <dl class="kv">
-      <dt>1. Argent disponible</dt><dd>${money(s.available)}</dd>
-      <dt>2. Total des créances</dt><dd>${money(s.receivables)}</dd>
-      <dt>3. Total des dettes</dt><dd>${money(s.debts)}</dd>
-      <dt>4. Patrimoine net</dt><dd>${money(s.net)}</dd>
-      <dt>5. Revenus du mois</dt><dd>${money(s.incomeMonth)}</dd>
-      <dt>6. Dépenses du mois</dt><dd>${money(s.expenseMonth)}</dd>
-      <dt>7. Épargne mensuelle</dt><dd>${money(s.savings, { sign: true })}</dd>
-      <dt>8. Taux d'épargne</dt><dd>${pct(s.savingsRate)}</dd>
-      <dt>9. Remboursements reçus (total)</dt><dd>${money(s.repaidReceived)}</dd>
-      <dt>10. Remboursements effectués (total)</dt><dd>${money(s.repaidMade)}</dd>
-      ${s.otherAssets ? `<dt>Autres actifs</dt><dd>${money(s.otherAssets)}</dd>` : ''}
+      <dt>Argent utilisable</dt><dd>${money(s.spendable)}</dd>
+      <dt>Total des créances</dt><dd>${money(s.receivables)}</dd>
+      <dt>Total des dettes</dt><dd>${money(s.debts)}</dd>
+      <dt>Revenus du mois</dt><dd>${money(s.incomeMonth)}</dd>
+      <dt>Dépenses du mois</dt><dd>${money(s.expenseMonth)}</dd>
+      <dt>Épargne mensuelle</dt><dd>${money(s.savings, { sign: true })}</dd>
+      <dt>Taux d'épargne</dt><dd>${pct(s.savingsRate)}</dd>
+      <dt>Remboursements reçus (total)</dt><dd>${money(s.repaidReceived)}</dd>
+      <dt>Remboursements effectués (total)</dt><dd>${money(s.repaidMade)}</dd>
     </dl>
+    <p class="hint">${icon('info')} Le total (disponible, patrimoine net) est visible dans Comptes.</p>
   </details>
 
   <section class="card">
@@ -720,10 +717,11 @@ function viewAccounts() {
   return `
   <section class="total-card">
     <span>Argent disponible</span>
-    <b>${anyHidden ? `${money(s.spendable)} <small class="muted">+ épargne</small>` : money(s.available)}</b>
+    <b data-testid="available">${anyHidden ? `${money(s.spendable)} <small class="muted">+ épargne</small>` : money(s.available)}</b>
     <div class="split">
       <span>Utilisable <b>${money(s.spendable)}</b></span>
       <span>Épargne <b>${hiddenMoney(s.reserved, anyHidden)}</b></span>
+      <span>Patrimoine net <b data-testid="net">${hiddenMoney(s.net, anyHidden)}</b></span>
       ${hasHiddenSavings ? `<button class="mini-btn" data-action="reveal-savings">${icon(S.revealSavings ? 'eyeOff' : 'eye')}${S.revealSavings ? 'Cacher' : 'Afficher'}</button>` : ''}
     </div>
   </section>
@@ -871,6 +869,152 @@ function openAssetForm(id) {
   });
 }
 
+/* ============================================================ section Euro */
+
+const eur = (c, o = {}) => money(c, { ...o, currency: 'EUR' });
+
+function viewEuro() {
+  const st = S.state;
+  const e = computeEuro(st);
+  const kind = S.euroTab;
+  const items = st.euro.items.filter((i) => i.kind === kind);
+  const pending = items.filter((i) => i.status !== 'done').sort((a, b) => a.date.localeCompare(b.date));
+  const done = items.filter((i) => i.status === 'done').sort((a, b) => (b.doneDate || '').localeCompare(a.doneDate || ''));
+  const row = (i) => `
+    <div class="euro-row ${i.status === 'done' ? 'is-done' : ''}">
+      <button class="euro-main" data-action="euro-form" data-id="${i.id}">
+        <span class="avatar">${esc(i.client.trim().charAt(0).toUpperCase() || '?')}</span>
+        <span class="op-main"><span class="op-title">${esc(i.client)}</span>
+          <span class="op-sub">${i.status === 'done' ? `Payé le ${esc(dateLabel(i.doneDate))}` : `Depuis le ${esc(dateLabel(i.date))}`}${i.note ? ' · ' + esc(i.note) : ''}</span></span>
+        <span class="op-amt ${kind === 'receive' ? 'pos' : 'neg'}">${eur(i.amount)}</span>
+      </button>
+      ${i.status === 'done'
+        ? `<button class="btn btn-ghost sm" data-action="euro-undo" data-id="${i.id}">Annuler le paiement</button>`
+        : `<button class="btn btn-primary sm" data-action="euro-done" data-id="${i.id}">${icon('check')} ${kind === 'receive' ? 'Client m\u2019a payé' : 'Client payé'}</button>`}
+    </div>`;
+  return `
+  <section class="total-card">
+    <span>Portefeuille euro</span>
+    <b data-testid="euro-total">${eur(e.balance)}</b>
+    <div class="split">
+      <span>À recevoir <b class="pos-light">${eur(e.toReceive)}</b></span>
+      <span>À payer <b class="neg-light">${eur(e.toPay)}</b></span>
+      <button class="mini-btn" data-action="euro-balance">${icon('edit')}Solde</button>
+    </div>
+  </section>
+  <p class="hint euro-hint">${icon('info')} Les montants en attente ne changent pas le solde. Ils s'ajoutent (ou se retirent) seulement quand vous les marquez comme payés. Les euros sont suivis à part, sans conversion en ${esc(st.settings.currency)}.</p>
+  <div class="segmented">
+    <button class="${kind === 'receive' ? 'on' : ''}" data-action="euro-tab" data-tab="receive">Clients qui me doivent</button>
+    <button class="${kind === 'pay' ? 'on' : ''}" data-action="euro-tab" data-tab="pay">Clients à payer</button>
+  </div>
+  <button class="btn btn-soft btn-full" data-action="euro-form" data-kind="${kind}">${icon('plus')} ${kind === 'receive' ? 'Ajouter un client qui me doit' : 'Ajouter un client à payer'}</button>
+  <section class="list-card">
+    ${pending.length ? pending.map(row).join('') : `<p class="empty-sm">${kind === 'receive' ? 'Aucun client en attente de paiement.' : 'Aucun client à payer.'}</p>`}
+  </section>
+  ${done.length ? `
+    <button class="link center-block" data-action="euro-settled">${S.euroShowDone ? 'Masquer' : 'Afficher'} les paiements réglés (${done.length})</button>
+    ${S.euroShowDone ? `<section class="list-card">${done.map(row).join('')}</section>` : ''}` : ''}`;
+}
+
+function openEuroForm(kind, id) {
+  const item = id ? S.state.euro.items.find((i) => i.id === id) : null;
+  const k = item?.kind || kind;
+  const names = [...new Set(S.state.euro.items.map((i) => i.client))];
+  openSheet({
+    title: item ? 'Modifier' : k === 'receive' ? 'Client qui me doit' : 'Client à payer',
+    className: 'sheet-form',
+    body: `
+    <form class="form" autocomplete="off" novalidate>
+      <div class="amount-big"><input name="amount" inputmode="decimal" placeholder="0" value="${item ? amountToInput(item.amount) : ''}" aria-label="Montant"><em>€</em></div>
+      <label class="field"><span>Client</span><input name="client" list="eclients" required maxlength="60" value="${esc(item?.client || '')}"></label>
+      <datalist id="eclients">${names.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
+      <label class="field"><span>Date</span><input type="date" name="date" value="${item?.date || today()}"></label>
+      ${item?.status === 'done' ? `<label class="field"><span>Payé le</span><input type="date" name="doneDate" value="${item.doneDate}"></label>` : ''}
+      <label class="field"><span>Description (facultatif)</span><input name="note" maxlength="120" value="${esc(item?.note || '')}"></label>
+      <p class="form-error" data-err></p>
+      <button class="btn btn-primary btn-lg" type="submit" data-submit>${item ? 'Enregistrer' : 'Ajouter'}</button>
+      ${item ? `<button type="button" class="btn btn-danger-ghost" data-del>${icon('trash')} Supprimer</button>` : ''}
+    </form>`,
+    onMount(el, close) {
+      const f = el.querySelector('form');
+      if (!item) setTimeout(() => f.amount.focus(), 280);
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const draft = {
+          id: item?.id || uid(), kind: k, client: f.client.value.trim().replace(/\s+/g, ' '),
+          amount: parseAmount(f.amount.value), date: f.date.value, note: f.note.value.trim() || undefined,
+          status: item?.status || 'pending', doneDate: f.doneDate ? f.doneDate.value : item?.doneDate,
+          createdAt: item?.createdAt || Date.now(),
+        };
+        if (Number.isNaN(draft.amount)) return showErr(el, 'Montant invalide.');
+        const err = validateEuroItem(draft);
+        if (err) return showErr(el, err);
+        if (!draft.note) delete draft.note;
+        if (draft.status !== 'done') delete draft.doneDate;
+        await commit((st) => {
+          const i = st.euro.items.findIndex((x) => x.id === draft.id);
+          if (i >= 0) st.euro.items[i] = draft; else st.euro.items.push(draft);
+        }, item ? 'Modifié.' : 'Ajouté (le solde euro change seulement au paiement).');
+        close();
+      };
+      el.querySelector('[data-del]')?.addEventListener('click', async () => {
+        const ok = await confirmDialog({
+          title: 'Supprimer ?',
+          message: item.status === 'done' ? 'Ce paiement est déjà réglé : le solde euro sera recalculé.' : `${item.client} — ${eur(item.amount, { force: true })}`,
+          confirmLabel: 'Supprimer', danger: true,
+        });
+        if (!ok) return;
+        await commit((st) => { st.euro.items = st.euro.items.filter((x) => x.id !== item.id); }, 'Supprimé.');
+        closeAllSheets();
+      });
+    },
+  });
+}
+
+async function markEuro(id, paid) {
+  const it = S.state.euro.items.find((i) => i.id === id);
+  if (!it) return;
+  if (paid) {
+    const ok = await confirmDialog({
+      title: it.kind === 'receive' ? 'Le client vous a payé ?' : 'Vous avez payé le client ?',
+      message: `${it.client} : ${eur(it.amount, { force: true })} ${it.kind === 'receive' ? 'seront ajoutés au' : 'seront retirés du'} portefeuille euro.`,
+      confirmLabel: 'Confirmer',
+    });
+    if (!ok) return;
+  }
+  await commit((st) => {
+    const x = st.euro.items.find((i) => i.id === id);
+    x.status = paid ? 'done' : 'pending';
+    if (paid) x.doneDate = today(); else delete x.doneDate;
+  }, paid ? (it.kind === 'receive' ? 'Ajouté au portefeuille euro.' : 'Retiré du portefeuille euro.') : 'Paiement annulé : remis en attente.');
+}
+
+function openEuroBalance() {
+  const e = computeEuro(S.state);
+  openSheet({
+    title: 'Solde euro actuel',
+    className: 'sheet-dialog',
+    body: `<form class="form" autocomplete="off">
+      <p class="dialog-msg">Indiquez combien d'euros vous avez réellement aujourd'hui. Les paiements clients réglés s'ajoutent ou se retirent ensuite automatiquement.</p>
+      <label class="field"><span>Solde actuel</span><div class="amount-wrap"><input name="v" inputmode="decimal" value="${amountToInput(e.balance)}"><em>€</em></div></label>
+      <p class="form-error" data-err></p>
+      <button class="btn btn-primary btn-lg" type="submit">Enregistrer</button></form>`,
+    onMount(el, close) {
+      const f = el.querySelector('form');
+      f.onsubmit = async (ev) => {
+        ev.preventDefault();
+        const raw = f.v.value.trim();
+        const neg = raw.startsWith('-');
+        const v = raw === '' ? 0 : parseAmount(raw.replace(/^-/, ''));
+        if (Number.isNaN(v)) return showErr(el, 'Montant invalide.');
+        const target = neg ? -v : v;
+        await commit((st) => { st.euro.initial += target - e.balance; }, 'Solde euro mis à jour.');
+        close();
+      };
+    },
+  });
+}
+
 /* ============================================================ prêts / dettes */
 
 function viewPeople() {
@@ -943,7 +1087,11 @@ function openPerson(key) {
           <span>${esc(dateLabel(r.date))} · ${esc(accById(r.accountId)?.name || '')}</span><b>${money(r.amount)}</b></button>`).join('')}</div>` : ''}
       <div class="loan-actions">
         ${l.remaining > 0 ? `<button class="btn btn-soft sm" data-action="new-op" data-type="repay" data-dir="${l.kind === 'loan' ? 'loan_repay' : 'debt_repay'}" data-ref="${l.id}">${icon('repay')} Remboursement</button>` : ''}
-        <button class="btn btn-ghost sm" data-action="op-detail" data-id="${l.id}">${icon('edit')} Détails</button>
+        <button class="btn btn-ghost sm" data-action="edit-op" data-id="${l.id}">${icon('edit')} Modifier</button>
+      </div>
+      <div class="loan-actions">
+        ${l.repayments.length ? '' : `<button class="btn btn-ghost sm" data-action="convert-loan" data-id="${l.id}">${icon('transfer')} ${l.kind === 'loan' ? 'Convertir en dette' : 'Convertir en prêt'}</button>`}
+        <button class="btn btn-danger-ghost sm" data-action="delete-op" data-id="${l.id}">${icon('trash')} Supprimer</button>
       </div>
     </div>`;
   };
@@ -1188,7 +1336,8 @@ function openOpForm(type, existing = null, preset = {}) {
   };
 
   const sheet = openSheet({
-    title: editing ? `Modifier : ${OP_TYPES[t].label.toLowerCase()}` : FORM_TITLES[t],
+    title: preset.converting ? (t === 'debt' ? 'Convertir en dette' : 'Convertir en prêt')
+      : editing ? `Modifier : ${OP_TYPES[t].label.toLowerCase()}` : FORM_TITLES[t],
     className: 'sheet-form',
     body: `<form class="form" autocomplete="off" novalidate><div data-fields>${fieldsFor(t)}</div>
       <p class="form-error" data-err></p>
@@ -1255,7 +1404,7 @@ function openOpForm(type, existing = null, preset = {}) {
         await commit((st) => {
           const i = st.ops.findIndex((o) => o.id === draft.id);
           if (i >= 0) st.ops[i] = draft; else st.ops.push(draft);
-        }, editing ? 'Opération modifiée.' : SAVED_MSG[t]);
+        }, preset.converting ? `Converti en ${t === 'debt' ? 'dette' : 'prêt'}.` : editing ? 'Opération modifiée.' : SAVED_MSG[t]);
         closeAllSheets();
         if (preset.reopenPerson) openPerson(preset.reopenPerson);
       };
@@ -1269,6 +1418,51 @@ function showErr(el, msg) {
   e.textContent = msg;
   e.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   navigator.vibrate?.(40);
+}
+
+/** Supprime une opération (et ses remboursements liés) avec confirmation et annulation. */
+async function deleteOpWithUndo(id) {
+  const op = opById(id);
+  if (!op) return;
+  const ids = cascadeIds(S.state, op.id);
+  const extra = ids.size - 1;
+  const ok = await confirmDialog({
+    title: 'Supprimer cette opération ?',
+    message: extra
+      ? `${extra} remboursement(s) lié(s) seront aussi supprimés. Tous les soldes seront recalculés.`
+      : 'Tous les soldes et statistiques seront recalculés.',
+    confirmLabel: 'Supprimer', danger: true,
+  });
+  if (!ok) return;
+  const removed = S.state.ops.filter((o) => ids.has(o.id));
+  await commit((st) => { st.ops = st.ops.filter((o) => !ids.has(o.id)); });
+  closeAllSheets();
+  toast('Opération supprimée.', {
+    action: {
+      label: 'Annuler',
+      run: () => {
+        // Ne restaure pas un remboursement dont le prêt a été supprimé entre-temps.
+        const keep = removed.filter((o) => !o.refId || removed.some((r) => r.id === o.refId) || opById(o.refId));
+        if (keep.length < removed.length || !S.unlocked) { toast('Annulation impossible : des opérations liées ont changé.'); return; }
+        if (keep.some((o) => !accById(o.accountId) && o.type !== 'debt')) { toast('Annulation impossible : compte supprimé.'); return; }
+        commit((st) => { st.ops.push(...keep); }, 'Suppression annulée.');
+      },
+    },
+  });
+}
+
+/** Transforme un prêt en dette (ou l'inverse) saisi dans le mauvais sens. */
+function convertLoan(id) {
+  const op = opById(id);
+  if (!op) return;
+  if (S.state.ops.some((o) => o.refId === id)) {
+    toast('Ce prêt a déjà des remboursements : supprimez-les avant de le convertir.', { duration: 5000 });
+    return;
+  }
+  const target = op.type === 'loan' ? 'debt' : 'loan';
+  closeAllSheets();
+  // On ouvre le formulaire du bon type, prérempli, avec le même identifiant.
+  openOpForm(target, { ...op, type: target, accountId: target === 'debt' ? undefined : op.accountId }, { converting: true });
 }
 
 function openOpDetail(id) {
@@ -1305,33 +1499,7 @@ function openOpDetail(id) {
       ${op.person || parent ? `<button class="btn btn-ghost center-block" data-action="person" data-key="${esc(normalizeName(op.person || parent.person))}">${icon('users')} Voir l'historique de la personne</button>` : ''}`,
     onMount(el, close) {
       el.querySelector('[data-edit]').onclick = () => { close(); openOpForm(op.type, op); };
-      el.querySelector('[data-del]').onclick = async () => {
-        const ids = cascadeIds(S.state, op.id);
-        const extra = ids.size - 1;
-        const ok = await confirmDialog({
-          title: 'Supprimer cette opération ?',
-          message: extra
-            ? `${extra} remboursement(s) lié(s) seront aussi supprimés. Tous les soldes seront recalculés.`
-            : 'Tous les soldes et statistiques seront recalculés.',
-          confirmLabel: 'Supprimer', danger: true,
-        });
-        if (!ok) return;
-        const removed = S.state.ops.filter((o) => ids.has(o.id));
-        await commit((st) => { st.ops = st.ops.filter((o) => !ids.has(o.id)); });
-        closeAllSheets();
-        toast('Opération supprimée.', {
-          action: {
-            label: 'Annuler',
-            run: () => {
-              // Ne restaure pas un remboursement dont le prêt a été supprimé entre-temps.
-              const ok = removed.filter((o) => !o.refId || removed.some((r) => r.id === o.refId) || opById(o.refId));
-              if (ok.length < removed.length || !S.unlocked) { toast('Annulation impossible : des opérations liées ont changé.'); return; }
-              if (ok.some((o) => !accById(o.accountId) && o.type !== 'debt')) { toast('Annulation impossible : compte supprimé.'); return; }
-              commit((st) => { st.ops.push(...ok); }, 'Suppression annulée.');
-            },
-          },
-        });
-      };
+      el.querySelector('[data-del]').onclick = () => deleteOpWithUndo(op.id);
     },
   });
 }
@@ -1429,6 +1597,7 @@ function viewSettings() {
   <h4 class="section-title">Gestion</h4>
   <section class="list-card">
     ${settingsItem({ href: '#accounts', ic: 'wallet', title: 'Comptes et réserves', sub: `${st.accounts.length} compte(s)` })}
+    ${settingsItem({ href: '#euro', ic: 'euro', title: 'Euro', sub: 'Clients qui me doivent / clients à payer' })}
     ${settingsItem({ href: '#categories', ic: 'tag', title: 'Catégories', sub: `${st.categories.length} catégories` })}
   </section>
 
@@ -1673,6 +1842,11 @@ function viewInstall() {
   </section>
   ${!installed && S.installPrompt ? `<button class="btn btn-primary btn-lg" data-action="install">${icon('download')} Installer l'application</button>` : ''}
   <section class="card prose">
+    <h3>Une vraie application, pas un raccourci</h3>
+    <p>Installée correctement, My Wallet devient une application Android à part entière : elle apparaît dans la liste de vos applications, s'ouvre en plein écran sans barre d'adresse, a sa propre fenêtre dans les applications récentes et figure dans Paramètres › Applications.</p>
+    <p>Si l'icône sur votre écran d'accueil porte un <b>petit logo Chrome</b> dans un coin, c'est seulement un raccourci. Supprimez-le, puis suivez les étapes ci-dessous en choisissant bien <b>Installer l'application</b> (et non « Ajouter à l'écran d'accueil »). Vos données ne sont pas perdues : elles restent dans le navigateur.</p>
+  </section>
+  <section class="card prose">
     <h3>Google Chrome (Android)</h3>
     <ol>
       <li>Ouvrez l'adresse de My Wallet dans Chrome.</li>
@@ -1756,6 +1930,15 @@ async function onAction(e) {
       openOpForm(d.type, null, { person: d.person, ref: d.ref, dir: d.dir });
       break;
     case 'op-detail': closeAllSheets(); openOpDetail(d.id); break;
+    case 'edit-op': { const o = opById(d.id); if (o) { closeAllSheets(); openOpForm(o.type, o); } break; }
+    case 'delete-op': deleteOpWithUndo(d.id); break;
+    case 'convert-loan': convertLoan(d.id); break;
+    case 'euro-tab': S.euroTab = d.tab; render(); break;
+    case 'euro-form': openEuroForm(d.kind || S.euroTab, d.id); break;
+    case 'euro-done': markEuro(d.id, true); break;
+    case 'euro-undo': markEuro(d.id, false); break;
+    case 'euro-balance': openEuroBalance(); break;
+    case 'euro-settled': S.euroShowDone = !S.euroShowDone; render(); break;
     case 'person': closeAllSheets(); openPerson(d.key); break;
     case 'account-detail': openAccountDetail(d.id); break;
     case 'account-form': closeAllSheets(); openAccountForm(d.id); break;
@@ -1808,7 +1991,7 @@ async function onAction(e) {
 
 /* ============================================================ service worker */
 
-const APP_VERSION = '1.0.1';
+const APP_VERSION = '1.1.0';
 
 let updateRequested = false;
 

@@ -10,7 +10,7 @@
  * statut de redirection (Chrome refuse de servir une réponse redirigée à une
  * navigation : erreur ERR_FAILED).
  */
-const VERSION = 'mywallet-v1.0.1';
+const VERSION = 'mywallet-v1.1.0';
 const SHELL = './';
 const ASSETS = [
   SHELL,

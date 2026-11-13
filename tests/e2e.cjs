@@ -26,6 +26,16 @@ const norm = (s) => s.replace(/[\s  ]/g, '');
   };
   const check = (label, cond) => { console.log(`${cond ? '✓' : '✗'} ${label}`); if (!cond) process.exitCode = 1; };
   const val = async (id) => norm(await page.locator(`[data-testid="${id}"]`).innerText());
+  const netVal = async () => {
+    await page.goto(URL + '#accounts');
+    await page.waitForSelector('[data-testid=net]');
+    const btn = page.locator('[data-action="reveal-savings"]');
+    if (await btn.count() && (await btn.innerText()).includes('Afficher')) await btn.click();
+    const v = norm(await page.locator('[data-testid=net]').innerText());
+    await page.goto(URL + '#home');
+    await page.waitForSelector('[data-testid=spendable]');
+    return v;
+  };
   const typePin = async (pin) => { for (const d of pin) await page.click(`.key[data-k="${d}"]`); await page.click('.key[data-k="ok"]'); };
 
   await page.goto(URL);
@@ -39,8 +49,8 @@ const norm = (s) => s.replace(/[\s  ]/g, '');
   await page.fill('input[name=cash]', '50000');
   await shot('02-initialisation');
   await page.click('#setup button[type=submit]');
-  await page.waitForSelector('[data-testid=available]', { timeout: 20000 });
-  check('Initialisation : disponible 50 000', (await val('available')) === '50000DA');
+  await page.waitForSelector('[data-testid=spendable]', { timeout: 20000 });
+  check('Initialisation : disponible 50 000', (await val('spendable')) === '50000DA');
 
   const sheetForm = '.sheet-form form';
   async function addOp(type, fill) {
@@ -79,10 +89,10 @@ const norm = (s) => s.replace(/[\s  ]/g, '');
     await page.fill(`${sheetForm} input[name=amount]`, '5000');
   });
 
-  check('Disponible = 53 000', (await val('available')) === '53000DA');
+  check('Disponible = 53 000', (await val('spendable')) === '53000DA');
   check('Créances = 7 000', (await val('receivables')) === '7000DA');
   check('Dettes = 10 000', (await val('debts')) === '10000DA');
-  check('Patrimoine net = 50 000', (await val('net')) === '50000DA');
+  check('Patrimoine net = 50 000', (await netVal()) === '50000DA');
   await shot('03-tableau-de-bord');
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/04-tableau-de-bord-complet.png`, fullPage: true, animations: 'disabled' }).catch(() => {});
 
@@ -114,9 +124,9 @@ const norm = (s) => s.replace(/[\s  ]/g, '');
   await page.click(`${sheetForm} [data-submit]`);
   await page.waitForSelector('.sheet-form', { state: 'detached' });
   await page.goto(URL + '#home');
-  await page.waitForSelector('[data-testid=available]');
-  check('Après modification dépense 8 000 : disponible 50 000', (await val('available')) === '50000DA');
-  check('Après modification : net 47 000', (await val('net')) === '47000DA');
+  await page.waitForSelector('[data-testid=spendable]');
+  check('Après modification dépense 8 000 : disponible 50 000', (await val('spendable')) === '50000DA');
+  check('Après modification : net 47 000', (await netVal()) === '47000DA');
 
   // Supprimer le remboursement d'Ahmed
   await page.goto(URL + '#history');
@@ -125,10 +135,10 @@ const norm = (s) => s.replace(/[\s  ]/g, '');
   await page.click('.sheet [data-yes]');
   await page.waitForTimeout(300);
   await page.goto(URL + '#home');
-  await page.waitForSelector('[data-testid=available]');
-  check('Après suppression remboursement : disponible 47 000', (await val('available')) === '47000DA');
+  await page.waitForSelector('[data-testid=spendable]');
+  check('Après suppression remboursement : disponible 47 000', (await val('spendable')) === '47000DA');
   check('Après suppression remboursement : créances 10 000', (await val('receivables')) === '10000DA');
-  check('Après suppression remboursement : net 47 000', (await val('net')) === '47000DA');
+  check('Après suppression remboursement : net 47 000', (await netVal()) === '47000DA');
 
   // Supprimer le prêt d'Ahmed -> cascade
   await page.goto(URL + '#history');
@@ -137,8 +147,8 @@ const norm = (s) => s.replace(/[\s  ]/g, '');
   await page.click('.sheet [data-yes]');
   await page.waitForTimeout(300);
   await page.goto(URL + '#home');
-  await page.waitForSelector('[data-testid=available]');
-  check('Après suppression prêt : disponible 57 000, créances 0', (await val('available')) === '57000DA' && (await val('receivables')) === '0DA');
+  await page.waitForSelector('[data-testid=spendable]');
+  check('Après suppression prêt : disponible 57 000, créances 0', (await val('spendable')) === '57000DA' && (await val('receivables')) === '0DA');
   // Annulation (undo) disponible dans le toast : on teste via nouvelle suppression + annuler
   await page.goto(URL + '#history');
   await page.click('.op-row:has-text("Alimentation")');
@@ -168,19 +178,19 @@ const norm = (s) => s.replace(/[\s  ]/g, '');
   // Verrouillage / déverrouillage
   await page.click('[data-action="lock"]');
   await page.waitForSelector('.screen-lock');
-  check('Verrouillage : données effacées de l’écran', (await page.locator('[data-testid=available]').count()) === 0);
+  check('Verrouillage : données effacées de l’écran', (await page.locator('[data-testid=spendable]').count()) === 0);
   await typePin('000000');
   await page.waitForSelector('.pin-sub.err');
   check('Mauvais PIN refusé', (await page.locator('.pin-sub').innerText()).includes('incorrect'));
   await shot('07-verrouillage');
   await typePin(PIN);
-  await page.waitForSelector('[data-testid=available]', { timeout: 20000 });
-  check('Déverrouillage : données retrouvées', (await val('available')) === '57000DA');
+  await page.waitForSelector('[data-testid=spendable]', { timeout: 20000 });
+  check('Déverrouillage : données retrouvées', (await val('spendable')) === '57000DA');
 
   // Masquage
   await page.click('[data-action="toggle-mask"]');
   await page.waitForTimeout(200);
-  check('Mode discrétion : montants masqués', (await page.locator('[data-testid=net]').innerText()).includes('•'));
+  check('Mode discrétion : montants masqués', (await page.locator('[data-testid=spendable]').innerText()).includes('•'));
   await page.click('[data-action="toggle-mask"]');
 
   // Sauvegarde puis restauration
@@ -195,7 +205,7 @@ const norm = (s) => s.replace(/[\s  ]/g, '');
   // Ajout d'une dépense puis restauration -> doit revenir à l'état sauvegardé
   await page.goto(URL + '#home');
   await addOp('expense', async () => { await page.fill(`${sheetForm} input[name=amount]`, '1000'); await page.click('.cat:has-text("Transport")'); });
-  check('Avant restauration : 56 000', (await val('available')) === '56000DA');
+  check('Avant restauration : 56 000', (await val('spendable')) === '56000DA');
   await page.goto(URL + '#backup');
   const [chooser] = await Promise.all([page.waitForEvent('filechooser'), page.click('[data-action="import-backup"]')]);
   await chooser.setFiles(file);
@@ -209,14 +219,79 @@ const norm = (s) => s.replace(/[\s  ]/g, '');
   await page.click('.sheet button[type=submit]');
   await page.waitForSelector('.sheet [data-yes]', { timeout: 20000 });
   await page.click('.sheet [data-yes]');
-  await page.waitForSelector('[data-testid=available]');
-  check('Restauration : 57 000', (await val('available')) === '57000DA');
+  await page.waitForSelector('[data-testid=spendable]');
+  check('Restauration : 57 000', (await val('spendable')) === '57000DA');
 
   // CSV
   await page.goto(URL + '#backup');
   const [csv] = await Promise.all([page.waitForEvent('download'), page.click('[data-action="export-csv"]')]);
   const csvText = require('fs').readFileSync(await csv.path(), 'utf8');
   check('Export CSV (en-tête + 4 lignes)', csvText.split('\r\n').length === 5 && csvText.includes('Date;Type;Montant'));
+
+  // Correction d'un prêt saisi dans le mauvais sens : conversion en dette
+  await page.goto(URL + '#home');
+  await addOp('loan', async () => {
+    await page.fill(`${sheetForm} input[name=amount]`, '2000');
+    await page.fill(`${sheetForm} input[name=person]`, 'Erreur');
+  });
+  check('Prêt erroné : créances 2 000, utilisable 55 000', (await val('receivables')) === '2000DA' && (await val('spendable')) === '55000DA');
+  await page.goto(URL + '#people');
+  await page.click('[data-action="people-tab"][data-tab="loan"]');
+  await page.click('.person-row:has-text("Erreur")');
+  await page.click('.sheet [data-action="convert-loan"]');
+  await page.waitForSelector(sheetForm);
+  await page.click(`${sheetForm} [data-submit]`);
+  await page.waitForSelector('.sheet-form', { state: 'detached' });
+  await page.goto(URL + '#home');
+  await page.waitForSelector('[data-testid=spendable]');
+  check('Après conversion : créances 0, dettes 12 000, utilisable 57 000',
+    (await val('receivables')) === '0DA' && (await val('debts')) === '12000DA' && (await val('spendable')) === '57000DA');
+  // Suppression directe depuis la fiche personne
+  await page.goto(URL + '#people');
+  await page.click('[data-action="people-tab"][data-tab="debt"]');
+  await page.click('.person-row:has-text("Erreur")');
+  await page.click('.sheet [data-action="delete-op"]');
+  await page.click('.sheet [data-yes]');
+  await page.waitForTimeout(300);
+  await page.goto(URL + '#home');
+  await page.waitForSelector('[data-testid=spendable]');
+  check('Suppression depuis la fiche personne : dettes 10 000', (await val('debts')) === '10000DA');
+
+  // Section Euro
+  const eur = async () => norm(await page.locator('[data-testid=euro-total]').innerText());
+  await page.goto(URL + '#euro');
+  await page.waitForSelector('[data-testid=euro-total]');
+  await page.click('[data-action="euro-form"][data-kind="receive"]');
+  await page.fill('.sheet input[name=amount]', '500');
+  await page.fill('.sheet input[name=client]', 'Client A');
+  await page.click('.sheet [data-submit]');
+  await page.waitForTimeout(300);
+  check('Euro : client en attente, solde inchangé (0 €)', (await eur()) === '0€');
+  await page.click('[data-action="euro-done"]');
+  await page.click('.sheet [data-yes]');
+  await page.waitForTimeout(300);
+  check('Euro : « client m’a payé » ajoute 500 €', (await eur()) === '500€');
+  await page.click('[data-action="euro-tab"][data-tab="pay"]');
+  await page.click('[data-action="euro-form"][data-kind="pay"]');
+  await page.fill('.sheet input[name=amount]', '200');
+  await page.fill('.sheet input[name=client]', 'Fournisseur B');
+  await page.click('.sheet [data-submit]');
+  await page.waitForTimeout(300);
+  check('Euro : client à payer en attente, solde inchangé (500 €)', (await eur()) === '500€');
+  await page.click('[data-action="euro-done"]');
+  await page.click('.sheet [data-yes]');
+  await page.waitForTimeout(300);
+  check('Euro : « client payé » retire 200 € (300 €)', (await eur()) === '300€');
+  await shot('12-euro');
+  await page.click('[data-action="euro-settled"]');
+  await page.click('[data-action="euro-undo"]');
+  await page.waitForTimeout(300);
+  check('Euro : annulation du paiement (500 €)', (await eur()) === '500€');
+  await page.goto(URL + '#home');
+  await page.waitForSelector('[data-testid=euro-balance]');
+  check('Tableau de bord : solde euro affiché, pas de patrimoine net', norm(await page.locator('[data-testid=euro-balance]').innerText()) === '500€'
+    && (await page.locator('[data-testid=net]').count()) === 0);
+  await shot('13-tableau-de-bord-v11');
 
   // Pages restantes (rendu sans erreur)
   for (const r of ['accounts', 'settings', 'security', 'install', 'categories']) {
@@ -241,8 +316,8 @@ const norm = (s) => s.replace(/[\s  ]/g, '');
   await page.reload();
   await page.waitForSelector('.screen-lock', { timeout: 10000 });
   await typePin(PIN);
-  await page.waitForSelector('[data-testid=available]', { timeout: 20000 });
-  check('Hors ligne : application et données disponibles', (await val('available')) === '57000DA');
+  await page.waitForSelector('[data-testid=spendable]', { timeout: 20000 });
+  check('Hors ligne : application et données disponibles', (await val('spendable')) === '57000DA');
   await ctx.setOffline(false);
 
   // Thème clair
