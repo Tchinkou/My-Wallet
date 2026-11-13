@@ -93,7 +93,7 @@ export function emptyState() {
     categories: defaultCategories(),
     ops: [],
     assets: [],
-    euro: { initial: 0, items: [] },
+    euro: { items: [] },
     meta: { createdAt: Date.now(), lastBackupAt: null },
   };
 }
@@ -107,7 +107,8 @@ export function migrateState(s) {
     settings: { ...base.settings, ...(s.settings || {}) },
     meta: { ...base.meta, ...(s.meta || {}) },
     assets: Array.isArray(s.assets) ? s.assets : [],
-    euro: { initial: s.euro?.initial || 0, items: Array.isArray(s.euro?.items) ? s.euro.items : [] },
+    // v1.2 : la section Euro est en devise principale ; l'ancien solde euro séparé est abandonné.
+    euro: { items: (Array.isArray(s.euro?.items) ? s.euro.items : []).map(({ status, doneDate, ...it }) => it) },
     categories: Array.isArray(s.categories) && s.categories.length ? s.categories : base.categories,
   };
 }

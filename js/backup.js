@@ -80,9 +80,9 @@ export function opsToCSV(state, ops) {
   const header = ['Date', 'Type', 'Montant', 'Sens', 'Catégorie', 'Compte', 'Compte destination', 'Personne', 'Échéance', 'Description', 'Devise'];
   const rows = [header];
   for (const op of ops) {
-    const incoming = op.type === 'income' || op.type === 'loan_repay' || (op.type === 'debt' && op.accountId);
-    const outgoing = op.type === 'expense' || op.type === 'loan' || op.type === 'debt_repay';
-    const person = op.person || parents.get(op.refId)?.person || '';
+    const incoming = op.type === 'income' || op.type === 'euro_in' || op.type === 'loan_repay' || (op.type === 'debt' && op.accountId);
+    const outgoing = op.type === 'expense' || op.type === 'euro_out' || op.type === 'loan' || op.type === 'debt_repay';
+    const person = op.person || parents.get(op.refId)?.person || state.euro?.items.find((i) => i.id === op.euroId)?.client || '';
     rows.push([
       op.date,
       OP_TYPES[op.type]?.label || op.type,

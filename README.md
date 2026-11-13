@@ -40,6 +40,7 @@ Tout est recalculé à partir du **journal des opérations** et des **soldes de 
 | Dette enregistrée | + montant **seulement si** l'argent a été reçu sur un compte | | + montant | aucun |
 | Remboursement effectué | − montant | | − montant | aucun |
 
+- **Section Euro** (achat/revente d'euros, montants en devise principale) : un client « qui me doit » ou « à payer » ne touche à aucun compte tant qu'il est en attente. « Client m'a payé » ajoute le montant au compte choisi, « Client payé » le retire ; ces mouvements ne comptent ni comme revenu ni comme dépense.
 - **Argent disponible** = somme des soldes de tous les comptes (dont l'épargne). L'écran distingue l'argent *utilisable* (hors comptes de type Épargne) et l'*épargne*, qui peut être masquée.
 - **Patrimoine net** = disponible + créances + autres actifs (facultatifs) − dettes.
 - **Fortune totale** = disponible + créances + autres actifs (ce que vous possédez, avant dettes).

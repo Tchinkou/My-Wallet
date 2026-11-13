@@ -138,7 +138,7 @@ export function icon(name, cls = '') {
 
 export const OP_ICON = {
   expense: 'expense', income: 'income', transfer: 'transfer',
-  loan: 'loan', loan_repay: 'repay', debt: 'debt', debt_repay: 'repay',
+  loan: 'loan', loan_repay: 'repay', debt: 'debt', debt_repay: 'repay', euro_in: 'euro', euro_out: 'euro',
 };
 export const ACCOUNT_ICON = { cash: 'cash', bank: 'bank', savings: 'piggy', other: 'box' };
 

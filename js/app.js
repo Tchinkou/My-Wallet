@@ -530,13 +530,14 @@ const afterRender = {};
 const accById = (id) => S.state.accounts.find((a) => a.id === id);
 const catById = (id) => S.state.categories.find((c) => c.id === id);
 const opById = (id) => S.state.ops.find((o) => o.id === id);
+const euroItem = (id) => S.state.euro.items.find((i) => i.id === id);
 
 function opFlow(op, accountId = null) {
   if (op.type === 'transfer') {
     if (accountId) return op.toAccountId === accountId ? 'in' : 'out';
     return 'neutral';
   }
-  if (op.type === 'income' || op.type === 'loan_repay') return 'in';
+  if (op.type === 'income' || op.type === 'loan_repay' || op.type === 'euro_in') return 'in';
   if (op.type === 'debt') return op.accountId ? 'in' : 'neutral';
   return 'out';
 }
@@ -550,6 +551,8 @@ function opTitle(op) {
     case 'debt': return `Dette envers ${op.person}`;
     case 'loan_repay': return `Remboursement de ${opById(op.refId)?.person || '?'}`;
     case 'debt_repay': return `Remboursement à ${opById(op.refId)?.person || '?'}`;
+    case 'euro_in': return `Paiement de ${euroItem(op.euroId)?.client || '?'}`;
+    case 'euro_out': return `Paiement à ${euroItem(op.euroId)?.client || '?'}`;
     default: return OP_TYPES[op.type]?.label || '';
   }
 }
@@ -642,8 +645,8 @@ function viewHome() {
       </a>
       <a href="#euro" class="hero-cell hero-wide">
         <span class="lbl">${icon('euro')} Euro</span>
-        <b data-testid="euro-balance">${money(eu.balance, { currency: 'EUR' })}</b>
-        <small>À recevoir ${money(eu.toReceive, { currency: 'EUR' })} · À payer ${money(eu.toPay, { currency: 'EUR' })}</small>
+        <small>Clients qui me doivent <b class="gold" data-testid="euro-receive">${money(eu.toReceive)}</b></small>
+        <small>Clients à payer <b class="neg" data-testid="euro-pay">${money(eu.toPay)}</b></small>
       </a>
     </div>
   </section>
@@ -871,41 +874,37 @@ function openAssetForm(id) {
 
 /* ============================================================ section Euro */
 
-const eur = (c, o = {}) => money(c, { ...o, currency: 'EUR' });
-
 function viewEuro() {
   const st = S.state;
   const e = computeEuro(st);
   const kind = S.euroTab;
-  const items = st.euro.items.filter((i) => i.kind === kind);
-  const pending = items.filter((i) => i.status !== 'done').sort((a, b) => a.date.localeCompare(b.date));
-  const done = items.filter((i) => i.status === 'done').sort((a, b) => (b.doneDate || '').localeCompare(a.doneDate || ''));
+  const items = e.items.filter((i) => i.kind === kind);
+  const pending = items.filter((i) => !i.done).sort((a, b) => a.date.localeCompare(b.date));
+  const done = items.filter((i) => i.done).sort((a, b) => b.doneDate.localeCompare(a.doneDate));
   const row = (i) => `
-    <div class="euro-row ${i.status === 'done' ? 'is-done' : ''}">
+    <div class="euro-row ${i.done ? 'is-done' : ''}">
       <button class="euro-main" data-action="euro-form" data-id="${i.id}">
         <span class="avatar">${esc(i.client.trim().charAt(0).toUpperCase() || '?')}</span>
         <span class="op-main"><span class="op-title">${esc(i.client)}</span>
-          <span class="op-sub">${i.status === 'done' ? `Payé le ${esc(dateLabel(i.doneDate))}` : `Depuis le ${esc(dateLabel(i.date))}`}${i.note ? ' · ' + esc(i.note) : ''}</span></span>
-        <span class="op-amt ${kind === 'receive' ? 'pos' : 'neg'}">${eur(i.amount)}</span>
+          <span class="op-sub">${i.done ? `Payé le ${esc(dateLabel(i.doneDate))} · ${esc(accById(i.op.accountId)?.name || '')}` : `Depuis le ${esc(dateLabel(i.date))}`}${i.note ? ' · ' + esc(i.note) : ''}</span></span>
+        <span class="op-amt ${kind === 'receive' ? 'gold' : 'neg'}">${money(i.amount)}</span>
       </button>
-      ${i.status === 'done'
+      ${i.done
         ? `<button class="btn btn-ghost sm" data-action="euro-undo" data-id="${i.id}">Annuler le paiement</button>`
-        : `<button class="btn btn-primary sm" data-action="euro-done" data-id="${i.id}">${icon('check')} ${kind === 'receive' ? 'Client m\u2019a payé' : 'Client payé'}</button>`}
+        : `<button class="btn btn-primary sm" data-action="euro-done" data-id="${i.id}">${icon('check')} ${kind === 'receive' ? 'Client m’a payé' : 'Client payé'}</button>`}
     </div>`;
   return `
   <section class="total-card">
-    <span>Portefeuille euro</span>
-    <b data-testid="euro-total">${eur(e.balance)}</b>
-    <div class="split">
-      <span>À recevoir <b class="pos-light">${eur(e.toReceive)}</b></span>
-      <span>À payer <b class="neg-light">${eur(e.toPay)}</b></span>
-      <button class="mini-btn" data-action="euro-balance">${icon('edit')}Solde</button>
+    <span>Clients en attente</span>
+    <div class="euro-totals">
+      <div><span>Ils me doivent</span><b class="gold-light" data-testid="euro-total-receive">${money(e.toReceive)}</b></div>
+      <div><span>Je dois payer</span><b class="neg-light" data-testid="euro-total-pay">${money(e.toPay)}</b></div>
     </div>
   </section>
-  <p class="hint euro-hint">${icon('info')} Les montants en attente ne changent pas le solde. Ils s'ajoutent (ou se retirent) seulement quand vous les marquez comme payés. Les euros sont suivis à part, sans conversion en ${esc(st.settings.currency)}.</p>
+  <p class="hint euro-hint">${icon('info')} Un montant en attente ne touche pas à votre argent. Il entre dans le compte choisi (ou en sort) seulement quand vous le marquez comme payé.</p>
   <div class="segmented">
-    <button class="${kind === 'receive' ? 'on' : ''}" data-action="euro-tab" data-tab="receive">Clients qui me doivent</button>
-    <button class="${kind === 'pay' ? 'on' : ''}" data-action="euro-tab" data-tab="pay">Clients à payer</button>
+    <button class="${kind === 'receive' ? 'on' : ''}" data-action="euro-tab" data-tab="receive">Ne m'ont pas payé</button>
+    <button class="${kind === 'pay' ? 'on' : ''}" data-action="euro-tab" data-tab="pay">Pas encore payés</button>
   </div>
   <button class="btn btn-soft btn-full" data-action="euro-form" data-kind="${kind}">${icon('plus')} ${kind === 'receive' ? 'Ajouter un client qui me doit' : 'Ajouter un client à payer'}</button>
   <section class="list-card">
@@ -917,19 +916,23 @@ function viewEuro() {
 }
 
 function openEuroForm(kind, id) {
-  const item = id ? S.state.euro.items.find((i) => i.id === id) : null;
+  const item = id ? computeEuro(S.state).items.find((i) => i.id === id) : null;
+  if (id && !item) return;
   const k = item?.kind || kind;
   const names = [...new Set(S.state.euro.items.map((i) => i.client))];
+  const sym = esc(CURRENCIES[view.currency].symbol);
   openSheet({
     title: item ? 'Modifier' : k === 'receive' ? 'Client qui me doit' : 'Client à payer',
     className: 'sheet-form',
     body: `
     <form class="form" autocomplete="off" novalidate>
-      <div class="amount-big"><input name="amount" inputmode="decimal" placeholder="0" value="${item ? amountToInput(item.amount) : ''}" aria-label="Montant"><em>€</em></div>
+      <div class="amount-big"><input name="amount" inputmode="decimal" placeholder="0" value="${item ? amountToInput(item.amount) : ''}" aria-label="Montant"><em>${sym}</em></div>
       <label class="field"><span>Client</span><input name="client" list="eclients" required maxlength="60" value="${esc(item?.client || '')}"></label>
       <datalist id="eclients">${names.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
       <label class="field"><span>Date</span><input type="date" name="date" value="${item?.date || today()}"></label>
-      ${item?.status === 'done' ? `<label class="field"><span>Payé le</span><input type="date" name="doneDate" value="${item.doneDate}"></label>` : ''}
+      ${item?.done ? `
+        <label class="field"><span>${k === 'receive' ? 'Reçu sur' : 'Payé depuis'}</span><select name="accountId">${accountOptions(item.op.accountId)}</select></label>
+        <label class="field"><span>Payé le</span><input type="date" name="doneDate" value="${item.doneDate}"></label>` : ''}
       <label class="field"><span>Description (facultatif)</span><input name="note" maxlength="120" value="${esc(item?.note || '')}"></label>
       <p class="form-error" data-err></p>
       <button class="btn btn-primary btn-lg" type="submit" data-submit>${item ? 'Enregistrer' : 'Ajouter'}</button>
@@ -943,76 +946,87 @@ function openEuroForm(kind, id) {
         const draft = {
           id: item?.id || uid(), kind: k, client: f.client.value.trim().replace(/\s+/g, ' '),
           amount: parseAmount(f.amount.value), date: f.date.value, note: f.note.value.trim() || undefined,
-          status: item?.status || 'pending', doneDate: f.doneDate ? f.doneDate.value : item?.doneDate,
           createdAt: item?.createdAt || Date.now(),
         };
         if (Number.isNaN(draft.amount)) return showErr(el, 'Montant invalide.');
         const err = validateEuroItem(draft);
         if (err) return showErr(el, err);
         if (!draft.note) delete draft.note;
-        if (draft.status !== 'done') delete draft.doneDate;
+        let op = null;
+        if (item?.done) {
+          op = { ...item.op, amount: draft.amount, accountId: f.accountId.value, date: f.doneDate.value, updatedAt: Date.now() };
+          const opErr = validateOp(S.state, op);
+          if (opErr) return showErr(el, opErr);
+        }
         await commit((st) => {
           const i = st.euro.items.findIndex((x) => x.id === draft.id);
           if (i >= 0) st.euro.items[i] = draft; else st.euro.items.push(draft);
-        }, item ? 'Modifié.' : 'Ajouté (le solde euro change seulement au paiement).');
+          if (op) st.ops[st.ops.findIndex((o) => o.id === op.id)] = op;
+        }, item ? 'Modifié.' : 'Ajouté. Votre argent ne change qu’au paiement.');
         close();
       };
       el.querySelector('[data-del]')?.addEventListener('click', async () => {
         const ok = await confirmDialog({
           title: 'Supprimer ?',
-          message: item.status === 'done' ? 'Ce paiement est déjà réglé : le solde euro sera recalculé.' : `${item.client} — ${eur(item.amount, { force: true })}`,
+          message: item.done
+            ? `Ce paiement est déjà réglé : ${money(item.amount, { force: true })} seront ${item.kind === 'receive' ? 'retirés de' : 'remis sur'} votre compte.`
+            : `${item.client} — ${money(item.amount, { force: true })}`,
           confirmLabel: 'Supprimer', danger: true,
         });
         if (!ok) return;
-        await commit((st) => { st.euro.items = st.euro.items.filter((x) => x.id !== item.id); }, 'Supprimé.');
+        await commit((st) => {
+          st.euro.items = st.euro.items.filter((x) => x.id !== item.id);
+          st.ops = st.ops.filter((o) => o.euroId !== item.id);
+        }, 'Supprimé.');
         closeAllSheets();
       });
     },
   });
 }
 
-async function markEuro(id, paid) {
-  const it = S.state.euro.items.find((i) => i.id === id);
+/** « Client m'a payé » / « Client payé » : crée l'opération qui touche le compte choisi. */
+function markEuroPaid(id) {
+  const it = euroItem(id);
   if (!it) return;
-  if (paid) {
-    const ok = await confirmDialog({
-      title: it.kind === 'receive' ? 'Le client vous a payé ?' : 'Vous avez payé le client ?',
-      message: `${it.client} : ${eur(it.amount, { force: true })} ${it.kind === 'receive' ? 'seront ajoutés au' : 'seront retirés du'} portefeuille euro.`,
-      confirmLabel: 'Confirmer',
-    });
-    if (!ok) return;
-  }
-  await commit((st) => {
-    const x = st.euro.items.find((i) => i.id === id);
-    x.status = paid ? 'done' : 'pending';
-    if (paid) x.doneDate = today(); else delete x.doneDate;
-  }, paid ? (it.kind === 'receive' ? 'Ajouté au portefeuille euro.' : 'Retiré du portefeuille euro.') : 'Paiement annulé : remis en attente.');
-}
-
-function openEuroBalance() {
-  const e = computeEuro(S.state);
+  if (!S.state.accounts.length) { toast("Créez d'abord un compte."); location.hash = '#accounts'; return; }
+  const receive = it.kind === 'receive';
   openSheet({
-    title: 'Solde euro actuel',
+    title: receive ? 'Le client vous a payé' : 'Vous avez payé le client',
     className: 'sheet-dialog',
     body: `<form class="form" autocomplete="off">
-      <p class="dialog-msg">Indiquez combien d'euros vous avez réellement aujourd'hui. Les paiements clients réglés s'ajoutent ou se retirent ensuite automatiquement.</p>
-      <label class="field"><span>Solde actuel</span><div class="amount-wrap"><input name="v" inputmode="decimal" value="${amountToInput(e.balance)}"><em>€</em></div></label>
+      <p class="dialog-msg"><b>${esc(it.client)}</b> : ${esc(money(it.amount, { force: true }))} ${receive ? 'seront ajoutés à' : 'seront retirés de'} votre argent.</p>
+      <label class="field"><span>${receive ? 'Reçu sur' : 'Payé depuis'}</span><select name="accountId">${accountOptions(defaultAccount())}</select></label>
+      <label class="field"><span>Date du paiement</span><input type="date" name="date" value="${today()}"></label>
       <p class="form-error" data-err></p>
-      <button class="btn btn-primary btn-lg" type="submit">Enregistrer</button></form>`,
+      <button class="btn btn-primary btn-lg" type="submit" data-submit>Confirmer</button></form>`,
     onMount(el, close) {
       const f = el.querySelector('form');
-      f.onsubmit = async (ev) => {
-        ev.preventDefault();
-        const raw = f.v.value.trim();
-        const neg = raw.startsWith('-');
-        const v = raw === '' ? 0 : parseAmount(raw.replace(/^-/, ''));
-        if (Number.isNaN(v)) return showErr(el, 'Montant invalide.');
-        const target = neg ? -v : v;
-        await commit((st) => { st.euro.initial += target - e.balance; }, 'Solde euro mis à jour.');
+      f.onsubmit = async (e) => {
+        e.preventDefault();
+        const op = {
+          id: uid(), type: receive ? 'euro_in' : 'euro_out', euroId: it.id, amount: it.amount,
+          accountId: f.accountId.value, date: f.date.value, createdAt: Date.now(), updatedAt: Date.now(),
+        };
+        if (it.note) op.note = it.note;
+        const err = validateOp(S.state, op);
+        if (err) return showErr(el, err);
+        await commit((st) => { st.ops.push(op); }, receive ? 'Ajouté à votre argent.' : 'Retiré de votre argent.');
         close();
       };
     },
   });
+}
+
+async function unmarkEuro(id) {
+  const it = euroItem(id);
+  if (!it) return;
+  const ok = await confirmDialog({
+    title: 'Annuler ce paiement ?',
+    message: `${it.client} : ${money(it.amount, { force: true })} seront ${it.kind === 'receive' ? 'retirés de' : 'remis sur'} votre compte et le client reviendra dans la liste en attente.`,
+    confirmLabel: 'Annuler le paiement',
+  });
+  if (!ok) return;
+  await commit((st) => { st.ops = st.ops.filter((o) => o.euroId !== id); }, 'Paiement annulé : remis en attente.');
 }
 
 /* ============================================================ prêts / dettes */
@@ -1424,6 +1438,7 @@ function showErr(el, msg) {
 async function deleteOpWithUndo(id) {
   const op = opById(id);
   if (!op) return;
+  if (op.euroId) { closeAllSheets(); unmarkEuro(op.euroId); return; }
   const ids = cascadeIds(S.state, op.id);
   const extra = ids.size - 1;
   const ok = await confirmDialog({
@@ -1498,7 +1513,10 @@ function openOpDetail(id) {
       </div>
       ${op.person || parent ? `<button class="btn btn-ghost center-block" data-action="person" data-key="${esc(normalizeName(op.person || parent.person))}">${icon('users')} Voir l'historique de la personne</button>` : ''}`,
     onMount(el, close) {
-      el.querySelector('[data-edit]').onclick = () => { close(); openOpForm(op.type, op); };
+      el.querySelector('[data-edit]').onclick = () => {
+        close();
+        if (op.euroId) openEuroForm(null, op.euroId); else openOpForm(op.type, op);
+      };
       el.querySelector('[data-del]').onclick = () => deleteOpWithUndo(op.id);
     },
   });
@@ -1930,14 +1948,13 @@ async function onAction(e) {
       openOpForm(d.type, null, { person: d.person, ref: d.ref, dir: d.dir });
       break;
     case 'op-detail': closeAllSheets(); openOpDetail(d.id); break;
-    case 'edit-op': { const o = opById(d.id); if (o) { closeAllSheets(); openOpForm(o.type, o); } break; }
+    case 'edit-op': { const o = opById(d.id); if (o) { closeAllSheets(); if (o.euroId) openEuroForm(null, o.euroId); else openOpForm(o.type, o); } break; }
     case 'delete-op': deleteOpWithUndo(d.id); break;
     case 'convert-loan': convertLoan(d.id); break;
     case 'euro-tab': S.euroTab = d.tab; render(); break;
     case 'euro-form': openEuroForm(d.kind || S.euroTab, d.id); break;
-    case 'euro-done': markEuro(d.id, true); break;
-    case 'euro-undo': markEuro(d.id, false); break;
-    case 'euro-balance': openEuroBalance(); break;
+    case 'euro-done': markEuroPaid(d.id); break;
+    case 'euro-undo': unmarkEuro(d.id); break;
     case 'euro-settled': S.euroShowDone = !S.euroShowDone; render(); break;
     case 'person': closeAllSheets(); openPerson(d.key); break;
     case 'account-detail': openAccountDetail(d.id); break;
@@ -1991,7 +2008,7 @@ async function onAction(e) {
 
 /* ============================================================ service worker */
 
-const APP_VERSION = '1.1.1';
+const APP_VERSION = '1.2.0';
 
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;

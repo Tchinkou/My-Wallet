@@ -583,3 +583,13 @@ p { margin: 0; }
 .euro-row.is-done .op-amt { opacity: .7; }
 .loan-actions + .loan-actions { margin-top: 4px; }
 .loan-actions .btn-danger-ghost { margin-left: auto; }
+
+/* v1.2 : section Euro en devise principale */
+.euro-totals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+.euro-totals span { display: block; color: var(--hero-muted); font-size: 13px; }
+.euro-totals b { font-size: 22px; font-weight: 700; overflow-wrap: anywhere; }
+.gold-light { color: #e3bf6c !important; }
+.hero-wide small { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.hero-wide small b { font-size: 14px; }
+.op-euro_in { background: var(--pos-soft); color: var(--pos); }
+.op-euro_out { background: var(--neg-soft); color: var(--neg); }

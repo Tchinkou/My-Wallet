@@ -22,6 +22,8 @@ export const OP_TYPES = {
   loan_repay: { label: 'Remboursement reçu',    short: 'Remb. reçu' },
   debt:       { label: 'Dette enregistrée',     short: 'Dette' },
   debt_repay: { label: 'Remboursement effectué', short: 'Remb. effectué' },
+  euro_in:    { label: 'Paiement reçu d\u2019un client (Euro)', short: 'Euro · reçu' },
+  euro_out:   { label: 'Paiement à un client (Euro)',       short: 'Euro · payé' },
 };
 
 export const ACCOUNT_TYPES = {
@@ -100,9 +102,11 @@ export function opDeltas(op) {
   const a = op.amount;
   switch (op.type) {
     case 'income':
+    case 'euro_in':             // section Euro : le client m'a payé
     case 'loan_repay':          // l'argent revient : +disponible, −créance
       return [[op.accountId, a]];
     case 'expense':
+    case 'euro_out':            // section Euro : j'ai payé le client
     case 'loan':                // l'argent sort : −disponible, +créance
     case 'debt_repay':          // −disponible, −dette
       return [[op.accountId, -a]];
@@ -354,25 +358,26 @@ export function availableSeries(state, today, days = 30, { spendableOnly = false
 /* ------------------------------------------------------------ section Euro */
 
 /**
- * Section Euro : portefeuille séparé en euros (aucune conversion avec la devise
- * principale). Les factures clients en attente ne changent PAS le solde :
- *   - kind 'receive' : un client me doit de l'argent ; une fois marqué payé,
- *     le montant s'ajoute au solde euro.
- *   - kind 'pay'     : je dois payer un client ; une fois marqué payé,
- *     le montant est retiré du solde euro.
+ * Section Euro : suivi des clients de l'activité d'achat/revente d'euros.
+ * Tous les montants sont dans la devise principale (dinars).
+ *   - kind 'receive' : un client ne m'a pas encore payé ;
+ *   - kind 'pay'     : je n'ai pas encore payé un client.
+ * Un élément en attente ne touche à AUCUN compte. Il est « réglé » lorsqu'il
+ * existe une opération euro_in / euro_out portant son identifiant (euroId) :
+ * c'est cette opération, et elle seule, qui modifie l'argent disponible.
  */
 export function computeEuro(state) {
-  const euro = state.euro || { initial: 0, items: [] };
-  let balance = euro.initial || 0;
+  const paidOps = new Map();
+  for (const op of state.ops) if (op.euroId) paidOps.set(op.euroId, op);
   let toReceive = 0, toPay = 0, received = 0, paid = 0;
-  for (const it of euro.items) {
-    if (it.status === 'done') {
-      if (it.kind === 'receive') { balance += it.amount; received += it.amount; }
-      else { balance -= it.amount; paid += it.amount; }
-    } else if (it.kind === 'receive') toReceive += it.amount;
+  const items = (state.euro?.items || []).map((it) => {
+    const op = paidOps.get(it.id) || null;
+    if (op) { if (it.kind === 'receive') received += op.amount; else paid += op.amount; }
+    else if (it.kind === 'receive') toReceive += it.amount;
     else toPay += it.amount;
-  }
-  return { balance, toReceive, toPay, received, paid, projected: balance + toReceive - toPay };
+    return { ...it, op, done: !!op, doneDate: op?.date || null };
+  });
+  return { items, toReceive, toPay, received, paid };
 }
 
 export function validateEuroItem(item) {
@@ -380,7 +385,6 @@ export function validateEuroItem(item) {
   if (!String(item.client || '').trim()) return 'Indiquez le nom du client.';
   if (!Number.isInteger(item.amount) || item.amount <= 0) return 'Le montant doit être supérieur à zéro.';
   if (!isValidISODate(item.date)) return 'Date invalide.';
-  if (item.status === 'done' && !isValidISODate(item.doneDate)) return 'Date de paiement invalide.';
   return null;
 }
 
@@ -423,7 +427,7 @@ export function filterOps(state, filters = {}) {
 
 /* ------------------------------------------------------------ validation */
 
-const NEEDS_ACCOUNT = new Set(['expense', 'income', 'transfer', 'loan', 'loan_repay', 'debt_repay']);
+const NEEDS_ACCOUNT = new Set(['expense', 'income', 'transfer', 'loan', 'loan_repay', 'debt_repay', 'euro_in', 'euro_out']);
 
 /**
  * Vérifie qu'une opération est cohérente avec l'état actuel.
@@ -452,6 +456,11 @@ export function validateOp(state, op) {
       const repaid = sumWhere(state.ops, (o) => o.refId === op.id && o.id !== op.id);
       if (op.amount < repaid) return `Le montant ne peut pas être inférieur au total déjà remboursé.`;
     }
+  }
+  if (op.type === 'euro_in' || op.type === 'euro_out') {
+    const item = (state.euro?.items || []).find((i) => i.id === op.euroId);
+    if (!item || item.kind !== (op.type === 'euro_in' ? 'receive' : 'pay')) return 'Client introuvable dans la section Euro.';
+    if (state.ops.some((o) => o.euroId === op.euroId && o.id !== op.id)) return 'Ce paiement est déjà réglé.';
   }
   if (op.type === 'loan_repay' || op.type === 'debt_repay') {
     const parentType = op.type === 'loan_repay' ? 'loan' : 'debt';

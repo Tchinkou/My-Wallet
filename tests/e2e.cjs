@@ -257,41 +257,54 @@ const norm = (s) => s.replace(/[\s  ]/g, '');
   await page.waitForSelector('[data-testid=spendable]');
   check('Suppression depuis la fiche personne : dettes 10 000', (await val('debts')) === '10000DA');
 
-  // Section Euro
-  const eur = async () => norm(await page.locator('[data-testid=euro-total]').innerText());
+  // Section Euro (montants en dinars, liés au portefeuille)
+  const tv = async (id) => norm(await page.locator(`[data-testid=${id}]`).innerText());
+  const spendableNow = async () => { await page.goto(URL + '#home'); await page.waitForSelector('[data-testid=spendable]'); return val('spendable'); };
+  const confirmPay = async () => { await page.click('[data-action="euro-done"]'); await page.click('.sheet [data-submit]'); await page.waitForTimeout(300); };
   await page.goto(URL + '#euro');
-  await page.waitForSelector('[data-testid=euro-total]');
+  await page.waitForSelector('[data-testid=euro-total-receive]');
   await page.click('[data-action="euro-form"][data-kind="receive"]');
-  await page.fill('.sheet input[name=amount]', '500');
+  await page.fill('.sheet input[name=amount]', '40000');
   await page.fill('.sheet input[name=client]', 'Client A');
   await page.click('.sheet [data-submit]');
   await page.waitForTimeout(300);
-  check('Euro : client en attente, solde inchangé (0 €)', (await eur()) === '0€');
-  await page.click('[data-action="euro-done"]');
-  await page.click('.sheet [data-yes]');
-  await page.waitForTimeout(300);
-  check('Euro : « client m’a payé » ajoute 500 €', (await eur()) === '500€');
+  check('Euro : client qui me doit 40 000 DA en attente', (await tv('euro-total-receive')) === '40000DA');
+  check('Euro : en attente, utilisable inchangé (57 000)', (await spendableNow()) === '57000DA');
+  check('Tableau de bord : carte Euro en dinars', (await tv('euro-receive')) === '40000DA' && (await page.locator('[data-testid=net]').count()) === 0);
+  await page.goto(URL + '#euro');
+  await confirmPay();
+  check('Euro : « client m\u2019a payé » ajoute 40 000 (97 000)', (await spendableNow()) === '97000DA');
+  await page.goto(URL + '#euro');
   await page.click('[data-action="euro-tab"][data-tab="pay"]');
   await page.click('[data-action="euro-form"][data-kind="pay"]');
-  await page.fill('.sheet input[name=amount]', '200');
+  await page.fill('.sheet input[name=amount]', '25000');
   await page.fill('.sheet input[name=client]', 'Fournisseur B');
   await page.click('.sheet [data-submit]');
   await page.waitForTimeout(300);
-  check('Euro : client à payer en attente, solde inchangé (500 €)', (await eur()) === '500€');
-  await page.click('[data-action="euro-done"]');
-  await page.click('.sheet [data-yes]');
-  await page.waitForTimeout(300);
-  check('Euro : « client payé » retire 200 € (300 €)', (await eur()) === '300€');
+  check('Euro : client à payer en attente, utilisable inchangé (97 000)', (await spendableNow()) === '97000DA');
+  await page.goto(URL + '#euro');
+  await page.click('[data-action="euro-tab"][data-tab="pay"]');
+  await confirmPay();
   await shot('12-euro');
+  check('Euro : « client payé » retire 25 000 (72 000)', (await spendableNow()) === '72000DA');
+  await shot('13-tableau-de-bord-v12');
+  await page.goto(URL + '#history');
+  check('Historique : paiements Euro visibles', (await page.locator('.op-row:has-text("Paiement de Client A")').count()) === 1
+    && (await page.locator('.op-row:has-text("Paiement à Fournisseur B")').count()) === 1);
+  await page.goto(URL + '#euro');
+  await page.click('[data-action="euro-tab"][data-tab="pay"]');
   await page.click('[data-action="euro-settled"]');
   await page.click('[data-action="euro-undo"]');
+  await page.click('.sheet [data-yes]');
   await page.waitForTimeout(300);
-  check('Euro : annulation du paiement (500 €)', (await eur()) === '500€');
-  await page.goto(URL + '#home');
-  await page.waitForSelector('[data-testid=euro-balance]');
-  check('Tableau de bord : solde euro affiché, pas de patrimoine net', norm(await page.locator('[data-testid=euro-balance]').innerText()) === '500€'
-    && (await page.locator('[data-testid=net]').count()) === 0);
-  await shot('13-tableau-de-bord-v11');
+  check('Euro : annulation du paiement (97 000, 25 000 à payer)', (await tv('euro-total-pay')) === '25000DA' && (await spendableNow()) === '97000DA');
+  // remise à l'état attendu par la suite du test (57 000)
+  await page.goto(URL + '#euro');
+  await page.click('[data-action="euro-tab"][data-tab="receive"]');
+  await page.click('[data-action="euro-undo"]');
+  await page.click('.sheet [data-yes]');
+  await page.waitForTimeout(300);
+  check('Euro : tout annulé, utilisable revenu à 57 000', (await spendableNow()) === '57000DA');
 
   // Pages restantes (rendu sans erreur)
   for (const r of ['accounts', 'settings', 'security', 'install', 'categories']) {

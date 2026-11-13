@@ -144,20 +144,39 @@ test('saisie des montants', () => {
   assert.ok(Number.isNaN(parseAmount('abc')));
 });
 
-test('section Euro : seuls les paiements réglés changent le solde', () => {
-  const st = { euro: { initial: 10000, items: [
-    { id: 'a', kind: 'receive', client: 'A', amount: 50000, date: T, status: 'pending' },
-    { id: 'b', kind: 'pay', client: 'B', amount: 20000, date: T, status: 'pending' },
-  ] } };
+test('section Euro (en dinars) : seul le paiement réglé touche le portefeuille', () => {
+  const { st } = scenario();
+  st.euro = { items: [
+    { id: 'a', kind: 'receive', client: 'A', amount: DA(40000), date: T },
+    { id: 'b', kind: 'pay', client: 'B', amount: DA(25000), date: T },
+  ] };
   let e = computeEuro(st);
-  assert.equal(e.balance, 10000);
-  assert.equal(e.toReceive, 50000);
-  assert.equal(e.toPay, 20000);
-  st.euro.items[0].status = 'done'; st.euro.items[0].doneDate = T;
-  st.euro.items[1].status = 'done'; st.euro.items[1].doneDate = T;
+  assert.equal(e.toReceive, DA(40000));
+  assert.equal(e.toPay, DA(25000));
+  assert.equal(computeSummary(st, T).available, DA(53000)); // en attente : rien ne bouge
+  const pay = (id, type) => {
+    const op = { id: 'p' + id, type, euroId: id, amount: st.euro.items.find((i) => i.id === id).amount, accountId: 'cash', date: T };
+    assert.equal(validateOp(st, op), null);
+    st.ops.push(op);
+  };
+  pay('a', 'euro_in');
+  assert.equal(computeSummary(st, T).available, DA(93000)); // client m'a payé : +40 000
+  pay('b', 'euro_out');
+  const s = computeSummary(st, T);
+  assert.equal(s.available, DA(68000)); // client payé : −25 000
+  assert.equal(s.incomeMonth, DA(20000)); // ni revenu ni dépense
+  assert.equal(s.expenseMonth, DA(5000));
   e = computeEuro(st);
-  assert.equal(e.balance, 40000);
   assert.equal(e.toReceive + e.toPay, 0);
+  assert.equal(e.received, DA(40000));
+  assert.equal(e.paid, DA(25000));
+  assert.match(validateOp(st, { id: 'x', type: 'euro_in', euroId: 'a', amount: 1, accountId: 'cash', date: T }), /déjà réglé/);
+  assert.match(validateOp(st, { id: 'y', type: 'euro_in', euroId: 'b', amount: 1, accountId: 'cash', date: T }), /introuvable/);
+  assert.deepEqual(checkIntegrity(st), []);
+  // annulation du paiement : le client revient en attente
+  st.ops = st.ops.filter((o) => o.euroId !== 'a');
+  assert.equal(computeSummary(st, T).available, DA(28000));
+  assert.equal(computeEuro(st).toReceive, DA(40000));
   assert.match(validateEuroItem({ kind: 'pay', client: '', amount: 1, date: T }), /client/);
 });
 
