@@ -3,14 +3,15 @@
  * Met en cache tous les fichiers de l'application au premier chargement
  * puis sert depuis le cache : l'application fonctionne sans Internet.
  * Aucune donnée financière ne transite ici : elles restent dans IndexedDB.
- * Pensez à incrémenter VERSION à chaque déploiement.
+ * Pensez à incrémenter VERSION à chaque déploiement : la nouvelle version
+ * s'active automatiquement (skipWaiting) au prochain chargement.
  *
  * Note Cloudflare Pages : /index.html est redirigé (308) vers /. On ne met
  * donc en cache que « ./ », et toute réponse redirigée est recopiée sans son
  * statut de redirection (Chrome refuse de servir une réponse redirigée à une
  * navigation : erreur ERR_FAILED).
  */
-const VERSION = 'mywallet-v1.1.0';
+const VERSION = 'mywallet-v1.1.1';
 const SHELL = './';
 const ASSETS = [
   SHELL,
@@ -36,6 +37,9 @@ async function clean(res) {
 }
 
 self.addEventListener('install', (event) => {
+  // Prend la main immédiatement : une version corrigée ne doit jamais rester
+  // bloquée en attente derrière une ancienne version encore ouverte dans un onglet.
+  self.skipWaiting();
   event.waitUntil((async () => {
     const cache = await caches.open(VERSION);
     await Promise.all(ASSETS.map(async (url) => {

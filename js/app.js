@@ -1991,32 +1991,19 @@ async function onAction(e) {
 
 /* ============================================================ service worker */
 
-const APP_VERSION = '1.1.0';
-
-let updateRequested = false;
+const APP_VERSION = '1.1.1';
 
 function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.register('./service-worker.js').then((reg) => {
-    const notify = (w) => {
-      toast('Une nouvelle version de My Wallet est disponible.', {
-        action: { label: 'Mettre à jour', run: () => { updateRequested = true; w.postMessage('SKIP_WAITING'); } },
-      });
-    };
-    if (reg.waiting && navigator.serviceWorker.controller) notify(reg.waiting);
-    reg.addEventListener('updatefound', () => {
-      const w = reg.installing;
-      w?.addEventListener('statechange', () => {
-        if (w.state === 'installed' && navigator.serviceWorker.controller) notify(w);
-      });
-    });
-  }).catch((e) => console.warn('Service worker non enregistré', e));
-  let reloading = false;
-  // Recharge uniquement après une mise à jour demandée (pas lors de la première installation).
+  // La nouvelle version s'installe et s'active seule (skipWaiting côté Service Worker).
+  // Si cette page tournait déjà sous une ancienne version, on propose de recharger.
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('./service-worker.js', { updateViaCache: 'none' })
+    .then((reg) => reg.update().catch(() => {}))
+    .catch((e) => console.warn('Service worker non enregistré', e));
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (reloading || !updateRequested) return;
-    reloading = true;
-    location.reload();
+    if (!hadController) return;
+    toast('My Wallet a été mise à jour.', { action: { label: 'Recharger', run: () => location.reload() } });
   });
 }
 
